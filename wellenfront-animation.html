@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Warum an der Front ein Wellenberg liegt</title>
+<style>
+  :root{
+    --paper:#FBFAF6;
+    --grid:#DFE5EC;
+    --grid-strong:#C6D0DB;
+    --ink:#16324F;
+    --ink-soft:#5B6B7C;
+    --front:#B8860B;
+    --track:#B03A2E;
+    --rest:#A9B2BC;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--paper);
+    color:var(--ink);
+    font-family:Iowan Old Style, Palatino Linotype, Palatino, Georgia, serif;
+    font-size:17px;
+    line-height:1.55;
+    font-variant-numeric:tabular-nums;
+    padding:28px 20px 60px;
+  }
+  .wrap{max-width:880px;margin:0 auto}
+
+  h1{
+    font-size:clamp(26px,4.6vw,38px);
+    font-weight:600;
+    line-height:1.15;
+    margin:0 0 10px;
+    letter-spacing:-.012em;
+  }
+  .lede{max-width:62ch;color:var(--ink-soft);margin:0 0 26px}
+
+  .board{
+    background:#fff;
+    border:1px solid var(--grid-strong);
+    border-radius:3px;
+    padding:14px 12px 6px;
+  }
+  canvas{display:block;width:100%;height:auto}
+
+  .controls{
+    display:flex;flex-wrap:wrap;align-items:center;gap:10px;
+    margin:16px 0 4px;
+  }
+  button{
+    font:inherit;font-size:16px;
+    background:#fff;color:var(--ink);
+    border:1px solid var(--ink);
+    border-radius:2px;
+    padding:7px 15px;
+    cursor:pointer;
+  }
+  button:hover{background:var(--ink);color:#fff}
+  button:focus-visible{outline:3px solid var(--front);outline-offset:2px}
+  button.ghost{border-color:var(--grid-strong);color:var(--ink-soft)}
+  button.ghost:hover{background:var(--ink-soft);color:#fff;border-color:var(--ink-soft)}
+
+  .clock-row{
+    display:grid;
+    grid-template-columns:repeat(auto-fit,minmax(150px,1fr));
+    gap:14px;
+    margin-top:26px;
+  }
+  .clock{
+    border:1px solid var(--grid-strong);
+    border-radius:3px;
+    background:#fff;
+    padding:10px 10px 12px;
+  }
+  .clock h3{margin:0 0 2px;font-size:17px;font-weight:600}
+  .clock .meta{font-size:14px;color:var(--ink-soft);margin:0;line-height:1.4}
+  .clock canvas{margin:6px 0 4px}
+
+  .readout{
+    margin-top:22px;
+    border-left:3px solid var(--front);
+    padding:2px 0 2px 16px;
+    max-width:62ch;
+  }
+  .readout p{margin:.35em 0}
+
+  table{border-collapse:collapse;margin-top:26px;width:100%;font-size:16px}
+  th,td{border-bottom:1px solid var(--grid);padding:7px 8px;text-align:left}
+  th{font-weight:600}
+  td.num,th.num{text-align:right}
+  tr.live td{background:#FBF3DC}
+
+  .note{margin-top:30px;max-width:62ch;color:var(--ink-soft);font-size:16px}
+  .k{color:var(--track)}
+  .f{color:var(--front)}
+  @media (max-width:520px){ body{padding:20px 14px 48px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>Warum bei&nbsp;x&nbsp;=&nbsp;18&nbsp;cm nach oben gezeichnet wird</h1>
+  <p class="lede">Erreger links bei x&nbsp;=&nbsp;0, Start nach oben, c&nbsp;=&nbsp;4,0&nbsp;cm/s, T&nbsp;=&nbsp;2,0&nbsp;s, ŝ&nbsp;=&nbsp;3,0&nbsp;cm. Lass die Zeit laufen und beobachte die Front.</p>
+
+  <div class="board">
+    <canvas id="main" width="1720" height="700"></canvas>
+  </div>
+
+  <div class="controls">
+    <button id="play">Abspielen</button>
+    <button id="jump" class="ghost">Springe zu t = 4,5 s</button>
+    <button id="reset" class="ghost">Zurück auf t = 0</button>
+  </div>
+  <div class="controls">
+    <label for="time" style="color:var(--ink-soft);font-size:15px">Zeit</label>
+    <input id="time" type="range" min="0" max="5" step="0.01" value="0" style="flex:1;min-width:180px">
+    <span id="tlabel" style="min-width:5.5em">t = 0,00 s</span>
+  </div>
+
+  <div class="readout" id="readout"></div>
+
+  <div class="clock-row" id="clocks"></div>
+
+  <table id="tab">
+    <thead>
+      <tr>
+        <th>Ort x</th>
+        <th class="num">schwingt seit Δt = t − x/c</th>
+        <th class="num">in Teilen von T</th>
+        <th class="num">Auslenkung s</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <p class="note">Die <span class="f">Front</span> wandert mit 4&nbsp;cm/s nach rechts. Jeder Punkt beginnt exakt so zu schwingen wie der Erreger: nach oben. Der Punkt bei 18&nbsp;cm hat gerade erst angefangen, der bei <span class="k">16&nbsp;cm</span> hat schon eine Viertelschwingung nach oben hinter sich — und eine Viertelschwingung nach oben endet im Wellenberg.</p>
+
+</div>
+
+<script>
+const A = 3, c = 4, T = 2, L = 20;
+const w = 2*Math.PI/T;
+let t = 0, playing = false, last = 0;
+
+const s = (x, tt) => (tt < x/c ? 0 : A*Math.sin(w*(tt - x/c)));
+const front = tt => Math.min(c*tt, L);
+const de = n => n.toLocaleString('de-DE', {minimumFractionDigits:1, maximumFractionDigits:2});
+
+/* ---------- Hauptbild ---------- */
+const cv = document.getElementById('main');
+const ctx = cv.getContext('2d');
+const W = cv.width, H = cv.height;
+const M = {l:70, r:40, t:40, b:60};
+const px = x => M.l + x/L * (W - M.l - M.r);
+const py = y => M.t + (A*1.45 - y)/(2*A*1.45) * (H - M.t - M.b);
+
+const TRACK = [
+  {x:18, col:'#B8860B', lab:'18'},
+  {x:16, col:'#B03A2E', lab:'16'},
+  {x:12, col:'#16324F', lab:'12'},
+  {x:8,  col:'#16324F', lab:'8'},
+  {x:0,  col:'#16324F', lab:'0'}
+];
+
+function drawMain(){
+  ctx.clearRect(0,0,W,H);
+  ctx.lineWidth = 2;
+
+  // Karo-Raster
+  ctx.strokeStyle = '#E6EBF1';
+  for(let x=0; x<=L; x+=1){ ctx.beginPath(); ctx.moveTo(px(x),M.t); ctx.lineTo(px(x),H-M.b); ctx.stroke(); }
+  for(let y=-4; y<=4; y+=1){ ctx.beginPath(); ctx.moveTo(M.l,py(y)); ctx.lineTo(W-M.r,py(y)); ctx.stroke(); }
+  ctx.strokeStyle = '#CBD5DF';
+  for(let x=0; x<=L; x+=2){ ctx.beginPath(); ctx.moveTo(px(x),M.t); ctx.lineTo(px(x),H-M.b); ctx.stroke(); }
+  for(let y=-3; y<=3; y+=3){ ctx.beginPath(); ctx.moveTo(M.l,py(y)); ctx.lineTo(W-M.r,py(y)); ctx.stroke(); }
+
+  // Achse
+  ctx.strokeStyle = '#16324F'; ctx.lineWidth = 2.5;
+  ctx.beginPath(); ctx.moveTo(M.l,py(0)); ctx.lineTo(W-M.r,py(0)); ctx.stroke();
+
+  ctx.fillStyle = '#5B6B7C';
+  ctx.font = '26px Georgia, serif'; ctx.textAlign = 'center';
+  for(let x=0; x<=L; x+=2) ctx.fillText(x, px(x), H-M.b+34);
+  ctx.textAlign = 'right';
+  ctx.fillText('+3', M.l-14, py(3)+9);
+  ctx.fillText('−3', M.l-14, py(-3)+9);
+  ctx.textAlign = 'left';
+  ctx.fillText('x in cm', W-M.r-110, H-M.b+34);
+  ctx.fillText('s in cm', M.l-58, M.t-10);
+
+  const f = front(t);
+
+  // ruhender Teil
+  ctx.strokeStyle = '#A9B2BC'; ctx.lineWidth = 5;
+  ctx.setLineDash([9,9]);
+  ctx.beginPath(); ctx.moveTo(px(f),py(0)); ctx.lineTo(px(L),py(0)); ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Welle
+  ctx.strokeStyle = '#16324F'; ctx.lineWidth = 5;
+  ctx.beginPath();
+  for(let i=0;i<=900;i++){
+    const x = f*i/900;
+    const X = px(x), Y = py(s(x,t));
+    i ? ctx.lineTo(X,Y) : ctx.moveTo(X,Y);
+  }
+  ctx.stroke();
+
+  // Front
+  ctx.strokeStyle = '#B8860B'; ctx.lineWidth = 2.5; ctx.setLineDash([7,7]);
+  ctx.beginPath(); ctx.moveTo(px(f),M.t); ctx.lineTo(px(f),H-M.b); ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.fillStyle = '#B8860B'; ctx.font = '25px Georgia, serif'; ctx.textAlign = 'center';
+  ctx.fillText('Front  x = ' + de(f) + ' cm', px(f), M.t-12);
+
+  // Punkte
+  TRACK.forEach(p=>{
+    if(t < p.x/c) return;
+    const X = px(p.x), Y = py(s(p.x,t));
+    ctx.strokeStyle = '#D8DEE6'; ctx.lineWidth = 1.5;
+    ctx.beginPath(); ctx.moveTo(X,py(0)); ctx.lineTo(X,Y); ctx.stroke();
+    ctx.fillStyle = p.col;
+    ctx.beginPath(); ctx.arc(X,Y,10,0,7); ctx.fill();
+  });
+}
+
+/* ---------- Zeigeruhren ---------- */
+const CLOCKS = [18,16,14,12];
+const holder = document.getElementById('clocks');
+CLOCKS.forEach(x=>{
+  const d = document.createElement('div');
+  d.className = 'clock';
+  d.innerHTML = '<h3>x = '+x+' cm</h3><canvas width="300" height="300" data-x="'+x+'"></canvas><p class="meta" data-m="'+x+'"></p>';
+  holder.appendChild(d);
+});
+
+function drawClocks(){
+  holder.querySelectorAll('canvas').forEach(cc=>{
+    const x = +cc.dataset.x, g = cc.getContext('2d');
+    const R = 108, cx = 150, cy = 150;
+    g.clearRect(0,0,300,300);
+
+    g.strokeStyle = '#DFE5EC'; g.lineWidth = 3;
+    g.beginPath(); g.arc(cx,cy,R,0,7); g.stroke();
+    g.beginPath(); g.moveTo(cx-R-12,cy); g.lineTo(cx+R+12,cy); g.stroke();
+
+    const started = t >= x/c;
+    const dt = Math.max(0, t - x/c);
+    const phi = w*dt;
+    const hx = cx + R*Math.cos(phi), hy = cy - R*Math.sin(phi);
+    const col = x===18 ? '#B8860B' : (x===16 ? '#B03A2E' : '#16324F');
+
+    if(started){
+      // zurückgelegter Bogen
+      g.strokeStyle = col; g.lineWidth = 7; g.globalAlpha = .25;
+      g.beginPath(); g.arc(cx,cy,R,0,-Math.min(phi,2*Math.PI),true); g.stroke();
+      g.globalAlpha = 1;
+      // Projektion = Auslenkung
+      g.strokeStyle = col; g.lineWidth = 4; g.setLineDash([6,6]);
+      g.beginPath(); g.moveTo(hx,hy); g.lineTo(cx,hy); g.stroke();
+      g.setLineDash([]);
+      // Zeiger
+      g.lineWidth = 6;
+      g.beginPath(); g.moveTo(cx,cy); g.lineTo(hx,hy); g.stroke();
+      g.fillStyle = col;
+      g.beginPath(); g.arc(hx,hy,11,0,7); g.fill();
+    }else{
+      g.fillStyle = '#A9B2BC'; g.font = '26px Georgia, serif'; g.textAlign = 'center';
+      g.fillText('noch in Ruhe', cx, cy+9);
+    }
+    const m = holder.querySelector('[data-m="'+x+'"]');
+    m.innerHTML = started
+      ? 'Δt = ' + de(dt) + ' s = ' + de(dt/T) + '·T<br>s = ' + de(s(x,t)) + ' cm'
+      : 'Welle noch nicht da';
+  });
+}
+
+/* ---------- Text + Tabelle ---------- */
+const read = document.getElementById('readout');
+const tbody = document.querySelector('#tab tbody');
+CLOCKS.concat([8,0]).forEach(x=>{
+  const tr = document.createElement('tr');
+  tr.dataset.x = x;
+  tr.innerHTML = '<td>'+x+' cm</td><td class="num"></td><td class="num"></td><td class="num"></td>';
+  tbody.appendChild(tr);
+});
+
+function drawText(){
+  const f = front(t);
+  document.getElementById('tlabel').textContent = 't = ' + de(t) + ' s';
+  document.getElementById('time').value = t;
+
+  let txt;
+  if(t === 0){
+    txt = '<p>Alles ruht. Der Erreger bei x = 0 wird gleich nach oben losgehen.</p>';
+  } else if(f < L){
+    txt = '<p>Die Front steht bei x = ' + de(f) + ' cm. Rechts davon ruht der Wellenträger noch.</p>'
+        + '<p>Der Punkt genau an der Front hat noch nichts gemacht: s = 0. Alle Punkte links davon sind schon weiter — je weiter links, desto weiter fortgeschritten.</p>';
+  } else {
+    txt = '<p>Die Front hat das Ende erreicht. Der ganze Träger schwingt.</p>';
+  }
+  if(Math.abs(t-4.5) < 0.02){
+    txt += '<p>Bei t = 4,5 s: Front bei 18 cm (s = 0). Bei <span class="k">16 cm</span> ist eine Viertelschwingung nach oben vergangen → s = +3 cm, also ein Wellenberg. Genau das ist der erste Punkt, den du beim Zeichnen setzt.</p>';
+  }
+  read.innerHTML = txt;
+
+  tbody.querySelectorAll('tr').forEach(tr=>{
+    const x = +tr.dataset.x, cells = tr.children;
+    const started = t >= x/c;
+    const dt = Math.max(0, t - x/c);
+    cells[1].textContent = started ? de(dt)+' s' : '—';
+    cells[2].textContent = started ? de(dt/T)+'·T' : '—';
+    cells[3].textContent = started ? de(s(x,t))+' cm' : 'in Ruhe';
+    tr.classList.toggle('live', started && Math.abs(x - front(t)) < 0.6);
+  });
+}
+
+function render(){ drawMain(); drawClocks(); drawText(); }
+
+/* ---------- Steuerung ---------- */
+const playBtn = document.getElementById('play');
+function loop(now){
+  if(!playing) return;
+  const dt = (now - last)/1000; last = now;
+  t = Math.min(5, t + dt*0.55);
+  if(t >= 5){ playing = false; playBtn.textContent = 'Abspielen'; }
+  render();
+  if(playing) requestAnimationFrame(loop);
+}
+playBtn.onclick = ()=>{
+  playing = !playing;
+  playBtn.textContent = playing ? 'Pause' : 'Abspielen';
+  if(playing){ if(t>=5) t=0; last = performance.now(); requestAnimationFrame(loop); }
+};
+document.getElementById('jump').onclick = ()=>{ playing=false; playBtn.textContent='Abspielen'; t=4.5; render(); };
+document.getElementById('reset').onclick = ()=>{ playing=false; playBtn.textContent='Abspielen'; t=0; render(); };
+document.getElementById('time').oninput = e=>{ playing=false; playBtn.textContent='Abspielen'; t=+e.target.value; render(); };
+
+render();
+</script>
+</body>
+</html>
